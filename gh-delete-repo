@@ -1,0 +1,71 @@
+#!/bin/bash
+set -e
+
+confirm=
+pattern=
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+  -y|--yes)
+    confirm=1
+    ;;
+  -h|--help)
+    echo "Usage: gh delete-repo [-y] <owner>/<name>"
+    echo "       gh delete-repo <owner>/<name-pattern>"
+    exit 0
+    ;;
+  *)
+    pattern="$1"
+    ;;
+  esac
+  shift 1
+done
+
+if [[ $pattern != */* ]]; then
+  echo "error: argument must be prefixed with \`<owner>/\`" >&2
+  exit 1
+fi
+
+owner="${pattern%/*}"
+pattern="${pattern#*/}"
+exact=1
+[[ $pattern == *"*"* ]] && exact=
+
+if [[ -n $confirm && -z $exact ]]; then
+  echo "error: cannot use \`--yes\` with name pattern" >&2
+  exit 1
+fi
+
+repos=()
+if [ -n "$exact" ]; then
+  repos=( "$owner/$pattern" )
+else
+  pattern="$(sed 's/\./\\./g; s/\*/.\\{0,\\}/g' <<<"${pattern}")"
+  while IFS=$'\t' read -r repo _; do
+    if grep -q "^${pattern}$" <<<"${repo#*/}"; then
+      repos+=( "$repo" )
+    fi
+  done < <(gh repo list "$owner" --limit 999)
+fi
+
+gray() {
+  echo -e "\033[38;5;242m${1}\033[0m"
+}
+
+interactive_confirm() {
+  read -p "$1 $(gray "(y/N)") " -n 1 -r
+  echo    # (optional) move to a new line
+  [[ $REPLY =~ ^[Yy]$ ]] || return 1
+}
+
+for repo in "${repos[@]}"; do
+  if [ -z "$confirm" ]; then
+    interactive_confirm "Delete repository ${repo}?" || continue
+  fi
+  if ! response="$(gh api -X DELETE "repos/$repo" -i)"; then
+    if ! grep -i '^X-Oauth-Scopes:' <<<"$response" | grep -q 'delete_repo'; then
+      echo "Ensure that you have authorized the \"delete_repo\" scope:  gh auth refresh -h github.com -s delete_repo" >&2
+    fi
+    exit 1
+  fi
+done
