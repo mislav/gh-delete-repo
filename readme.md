@@ -1,5 +1,7 @@
 # gh delete-repo
 
+**Deprecated: a `gh repo delete` command now ships with GitHub CLI core.**
+
 A GitHub CLI extension to delete GitHub repositories.
 
 Installation:
